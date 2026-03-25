@@ -56,6 +56,28 @@ app.get("/api/posts", async (req, res) => {
   }
 });
 
+//get single post
+app.get('/api/posts/:id', async(req,res)=>{
+  try {
+  const id = req.params.id;
+
+    if(!mongoose.Types.ObjectId.isValid(id)){
+      return res.status(400).json({message: "Invalid blog id"});
+    };
+
+    const post = await Post.findById(id);
+
+    if(!post){
+      return res.status(404).json({message: "Blog post not found"});
+    }
+
+    res.status(200).json(post);
+    
+  } catch (error) {
+    res.status(500).json({error: error.message})
+  }
+})
+
 //create post
 app.post('/api/posts', async(req,res)=>{
   try {
@@ -67,7 +89,7 @@ app.post('/api/posts', async(req,res)=>{
       image
     });
 
-   res.status(201).json(newPost)
+   res.status(201).json(newPost);
   } catch (error) {
     res.status(500).json({message: error.message})
   }
@@ -97,6 +119,28 @@ app.patch('/api/posts/:id', async (req, res)=>{
     res.status(400).json({message: error.message});
   }
 })
+
+//delete post
+app.delete('/api/posts/:id', async(req, res)=>{
+  try {
+      // get id
+  const id = req.params.id;
+//check id validity
+if(!mongoose.Types.ObjectId.isValid(id)){
+ return res.status(400).json({message: "Invalid blog post ID format" })
+}
+//filter through posts and delete the post with that id
+const deletedPost = await Post.findByIdAndDelete(id);
+
+if(!deletedPost){
+  return res.status(404).json({message: "Blog Post not found"})
+}
+//return deleted id response
+res.status(200).json({message: "Blog post deleted successfully"})
+  } catch (error) {
+    res.status(500).json({error: error.message})
+  }
+});
 
 
 
