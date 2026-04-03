@@ -142,7 +142,61 @@ res.status(200).json({message: "Blog post deleted successfully"})
   }
 });
 
+// admin profile
+// admin login
+//app under maintenace
 
+const adminSchema = new mongoose.Schema({
+  email: {
+    type: String,
+    required: true,
+    unique: true
+  }, 
+  password: {
+    type: String,
+    required: true
+  }
+})
+
+const Admin = mongoose.model('Admin', adminSchema)
+
+//admin login
+app.post('/api/admin/login', async (req, res)=>{
+  try {
+    //get the email and password from the req
+    const {email, password} = req.body;
+    // Check if an admin with this email exists in the DB
+    const adminUser = await Admin.findOne({email: email});
+
+    if(!adminUser){
+      // 401- unauthorised
+      return res.status(401).json({error: "Invalid email or password"})
+    }
+
+    //check if password matches with the password in the DB
+    if(adminUser.password !== password){
+      return res.status(401).json({error: "Invalid email or password"})
+    }
+
+    //if passwords matches, login
+    res.status(200).json({message: "Login successful"})
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+})
+
+// admin change password 
+// app.patch('/api/admin/change-password', async (req, res)=> {
+//   const {old_password, new_password} = req.body;
+
+//     // 1. Find the admin by email
+//     // If no admin is found, stop here
+//     // 2. Verify the current password is correct
+//     // 3. Prevent them from changing it to the exact same password
+//     // 4. Update the password and save it to the database
+  
+// })
 
 
 const PORT = process.env.PORT || 5000;

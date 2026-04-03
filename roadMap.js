@@ -113,6 +113,42 @@ app.delete('/api/posts/:id', async (req, res) => {
   }
 });
 
+
+
+// Admin Change Password Route
+app.patch('/api/admin/change-password', async (req, res) => {
+  try {
+    const { email, currentPassword, newPassword } = req.body;
+
+    // 1. Find the admin by email
+    const adminUser = await Admin.findOne({ email: email });
+
+    // If no admin is found, stop here
+    if (!adminUser) {
+      return res.status(404).json({ message: "Admin account not found" });
+    }
+
+    // 2. Verify the current password is correct
+    if (adminUser.password !== currentPassword) {
+      return res.status(401).json({ message: "Incorrect current password" });
+    }
+
+    // 3. Prevent them from changing it to the exact same password
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ message: "New password must be different from the old one" });
+    }
+
+    // 4. Update the password and save it to the database
+    adminUser.password = newPassword;
+    await adminUser.save(); // This tells Mongoose to update this specific document
+
+    res.status(200).json({ message: "Password updated successfully!" });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // ==========================================
 // 5. START THE SERVER
 // ==========================================
