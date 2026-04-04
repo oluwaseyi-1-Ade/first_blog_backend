@@ -166,7 +166,7 @@ app.patch('/api/posts/:id', upload.single('image'), async (req, res)=>{
     const updatedPost = await Post.findByIdAndUpdate(
       id, //who to update
       updateData, //what to update it with
-      { new: true, runValidators: true } // Options
+      { returnDocument: 'after', runValidators: true } // Options
     );
 
      res.status(200).json(updatedPost);
