@@ -4,10 +4,34 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const connectDB = require("./db");
 require("dotenv").config();
+const { extractPublicId } = require("./helpers");
 
 //Initialize app and connect to db
 const app = express();
 connectDB();
+
+const cloudinary = require('cloudinary').v2;
+const {CloudinaryStorage} = require('multer-storage-cloudinary');
+const multer = require('multer');
+
+// 1. Configure Cloudinary with your .env credentials
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// 2. Set up the storage engine
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'first_blog_images',
+    allowedFormats: ['jpeg', 'png', 'jpg'], // Only allow these file types
+  },
+});
+
+// 3. Initialize Multer with this storage
+const upload = multer({ storage: storage });
 
 //middleware
 app.use(cors());
@@ -28,6 +52,11 @@ const postSchema = new mongoose.Schema(
       type: String,
       required: [true, "Image is required to create a blog"],
     },
+    status:{
+      type: String,
+      enum: ["draft", "publish"],
+      required: [true, "status is required"],
+    }
   },
   { timestamps: true },
 );
@@ -79,14 +108,23 @@ app.get('/api/posts/:id', async(req,res)=>{
 })
 
 //create post
-app.post('/api/posts', async(req,res)=>{
+app.post('/api/posts', upload.single('image'), async(req,res)=>{
   try {
-   const { title, description, image } = req.body;
+   const { title, description, image, status } = req.body;
+
+   // req.file is created by Multer. 
+    // req.file.path is the live Cloudinary URL!
+    if (!req.file) {
+      return res.status(400).json({ message: "No image provided" });
+    }
+
+    const imageUrl = req.file.path;
    
    const newPost = await Post.create({
       title,
       description,
-      image
+      image: imageUrl,
+      status
     });
 
    res.status(201).json(newPost);
@@ -96,7 +134,7 @@ app.post('/api/posts', async(req,res)=>{
 })
 
 //update post
-app.patch('/api/posts/:id', async (req, res)=>{
+app.patch('/api/posts/:id', upload.single('image'), async (req, res)=>{
   try {
     const id = req.params.id;
 
@@ -104,15 +142,32 @@ app.patch('/api/posts/:id', async (req, res)=>{
        return res.status(400).json({ message: "Invalid blog post ID format" });
     }
 
-    const updatedPost = await Post.findByIdAndUpdate(
-      id, //who to update
-      req.body, //what to update it with
-      { new: true, runValidators: true } // Options
-    );
-
-    if (!updatedPost) {
+    // Find the existing post FIRST (Before we do anything else)
+    const existingPost = await Post.findById(id);
+    if (!existingPost) {
       return res.status(404).json({ message: "Blog post not found" });
     }
+
+    // 1. Grab all the text fields sent in the request
+    const updateData = { ...req.body };
+
+    // 2. Check if a NEW image was uploaded
+    if (req.file) {
+      // A. Delete the OLD image from Cloudinary using the existingPost data
+      if (existingPost.image) {
+        const publicId = extractPublicId(existingPost.image);
+        await cloudinary.uploader.destroy(publicId);
+      }
+
+      // B. Attach the NEW image URL to our update object
+      updateData.image = req.file.path;
+    }
+
+    const updatedPost = await Post.findByIdAndUpdate(
+      id, //who to update
+      updateData, //what to update it with
+      { new: true, runValidators: true } // Options
+    );
 
      res.status(200).json(updatedPost);
   } catch (error) {
@@ -130,11 +185,23 @@ if(!mongoose.Types.ObjectId.isValid(id)){
  return res.status(400).json({message: "Invalid blog post ID format" })
 }
 //filter through posts and delete the post with that id
-const deletedPost = await Post.findByIdAndDelete(id);
+   // 1. Find the post FIRST (before deleting it) so we can get the image URL
+    const postToDelete = await Post.findById(id);
 
-if(!deletedPost){
-  return res.status(404).json({message: "Blog Post not found"})
-}
+    
+    if(!postToDelete){
+      return res.status(404).json({message: "Blog Post not found"})
+    }
+
+      // 2. Extract the public_id and delete the image from Cloudinary
+    if (postToDelete.image) {
+      const publicId = extractPublicId(postToDelete.image);
+      await cloudinary.uploader.destroy(publicId); 
+    }
+
+       // 3. NOW delete the post from the MongoDB database
+    await Post.findByIdAndDelete(id);
+
 //return deleted id response
 res.status(200).json({message: "Blog post deleted successfully"})
   } catch (error) {
@@ -142,8 +209,7 @@ res.status(200).json({message: "Blog post deleted successfully"})
   }
 });
 
-// admin profile
-// admin login
+
 //app under maintenace
 
 const adminSchema = new mongoose.Schema({
@@ -153,6 +219,10 @@ const adminSchema = new mongoose.Schema({
     unique: true
   }, 
   password: {
+    type: String,
+    required: true
+  },
+  role:{
     type: String,
     required: true
   }
@@ -169,17 +239,21 @@ app.post('/api/admin/login', async (req, res)=>{
     const adminUser = await Admin.findOne({email: email});
 
     if(!adminUser){
-      // 401- unauthorised
       return res.status(401).json({error: "Invalid email or password"})
+    }
+
+         //check role
+    if(adminUser.role !== "badmin"){
+      return res.status(401).json({message: "User not authorized to perform this action"})
     }
 
     //check if password matches with the password in the DB
     if(adminUser.password !== password){
-      return res.status(401).json({error: "Invalid email or password"})
+      return res.status(401).json({message: "Invalid email or password"})
     }
 
     //if passwords matches, login
-    res.status(200).json({message: "Login successful"})
+    res.status(200).json({data:adminUser, message: "Login successful"})
 
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -187,16 +261,46 @@ app.post('/api/admin/login', async (req, res)=>{
 })
 
 // admin change password 
-// app.patch('/api/admin/change-password', async (req, res)=> {
-//   const {old_password, new_password} = req.body;
+app.patch('/api/admin/change-password', async (req, res)=> {
+  try {
+      const {email, old_password, new_password} = req.body;
 
-//     // 1. Find the admin by email
-//     // If no admin is found, stop here
-//     // 2. Verify the current password is correct
-//     // 3. Prevent them from changing it to the exact same password
-//     // 4. Update the password and save it to the database
+    // 1. Find the admin by email
+    const adminUser = await Admin.findOne({email: email});
+
+    // If no admin is found, stop here
+    if(!adminUser){
+     return res.status(404).json({message: "Admin account not found"})
+    };
+
+    //check role
+    if(adminUser.role !== "badmin"){
+      return res.status(401).json({message: "User not authorized to perform this action"})
+    }
+
+    // 2. Verify the current password is correct
+    if(adminUser.password !== old_password){
+      return res.status(401).json({message: "Incorrect current password"})
+    }
+
+    // 3. Prevent them from changing it to the exact same password
+    if(old_password == new_password){
+      return res.status(400).json({message: "New password must be different from the old one"})
+    }
+
+    // 4. Update the password and save it to the database
+    adminUser.password = new_password;
+    await adminUser.save(); // This tells Mongoose to update this specific document
+
+    res.status(200).json({message: "Password updated successfully!"});
   
-// })
+  } catch (error) {
+    res.status(500).json({message: error.message})
+  }
+
+})
+
+// admin log out 
 
 
 const PORT = process.env.PORT || 5000;
