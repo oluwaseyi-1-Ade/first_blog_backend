@@ -52,6 +52,10 @@ const postSchema = new mongoose.Schema(
       type: String,
       required: [true, "Image is required to create a blog"],
     },
+    tags:{
+      type: [String],
+       required: [true, "Post tags are required required"],
+    },
     status:{
       type: String,
       enum: ["draft", "publish"],
@@ -110,7 +114,12 @@ app.get('/api/posts/:id', async(req,res)=>{
 //create post
 app.post('/api/posts', upload.single('image'), async(req,res)=>{
   try {
-   const { title, description, image, status } = req.body;
+   const { title, description, status, tags } = req.body;
+
+   let tagsArray = [];
+    if (req.body.tags) {
+      tagsArray = JSON.parse(req.body.tags);
+    }
 
    // req.file is created by Multer. 
     // req.file.path is the live Cloudinary URL!
@@ -124,7 +133,8 @@ app.post('/api/posts', upload.single('image'), async(req,res)=>{
       title,
       description,
       image: imageUrl,
-      status
+      status,
+      tags: tagsArray
     });
 
    res.status(201).json(newPost);
@@ -150,6 +160,10 @@ app.patch('/api/posts/:id', upload.single('image'), async (req, res)=>{
 
     // 1. Grab all the text fields sent in the request
     const updateData = { ...req.body };
+
+    if (updateData.tags) {
+      updateData.tags = JSON.parse(updateData.tags);
+    }
 
     // 2. Check if a NEW image was uploaded
     if (req.file) {
@@ -300,7 +314,14 @@ app.patch('/api/admin/change-password', async (req, res)=> {
 
 })
 
-// admin log out 
+// admin log out-not needed 
+// app.post('api/admin/logout', async(req, res) => {
+//   try {
+    
+//   } catch (error) {
+//     res.status(500).json({message: error.message})
+//   }
+// })
 
 
 const PORT = process.env.PORT || 5000;
